@@ -71,18 +71,19 @@ def merge_sort_double(arr, key):
 def merge_double(left, right, key):
     result = []
     while left and right:
-        left_acc = int(left[0]['누적 관객수'])
-        right_acc = int(right[0]['누적 관객수'])
+        left_key = left[0].get(key, 0)
+        right_key = right[0].get(key, 0)
 
-        if left_acc > right_acc:
+        # 1. 우선 입력된 정렬 기준(key) 비교
+        if left_key > right_key:
             result.append(left.pop(0))
-        elif left_acc < right_acc:
+        elif left_key < right_key:
             result.append(right.pop(0))
         else:
-            # 누적 관객수 같으면 key 기준 비교
-            left_key = left[0].get(key, 0)
-            right_key = right[0].get(key, 0)
-            if left_key >= right_key:
+            # 2. 같으면 '누적 관객수'로 비교
+            left_acc = int(left[0]['누적 관객수'])
+            right_acc = int(right[0]['누적 관객수'])
+            if left_acc >= right_acc:
                 result.append(left.pop(0))
             else:
                 result.append(right.pop(0))
@@ -90,7 +91,7 @@ def merge_double(left, right, key):
     return result
 
 # Streamlit App
-st.title("🎬 영화 박스오피스 데이터 정렬 웹앱")
+st.title("🎬 영화 박스오피스 데이터 웹앱")
 
 year = st.number_input('연도를 입력하세요 (예: 2025)', min_value=2004, max_value=2025, value=2025, step=1)
 year = int(year)  # float형으로 나오므로 int형 변환
@@ -107,25 +108,56 @@ if st.button('데이터 불러오기 및 정렬'):
     df['주간 관객수'] = pd.to_numeric(df['주간 관객수'], errors='coerce')
     df['월간 관객수'] = pd.to_numeric(df['월간 관객수'], errors='coerce')
     df['개봉일'] = pd.to_datetime(df['개봉일'], errors='coerce')
+    df['날짜'] = pd.to_datetime(df['날짜'])
+    df['주'] = df['날짜'].dt.isocalendar().week
+    df['월'] = df['날짜'].dt.month
+    max_daily_row = df.loc[df['당일 관객수'].idxmax()]
+    max_weekly_row = df.loc[df['주간 관객수'].idxmax()]
+    max_monthly_row = df.loc[df['월간 관객수'].idxmax()]
 
     # 해당 연도 개봉 영화만
     df_filtered = df[df['개봉일'].dt.year == year]
 
-    if df_filtered.empty:
-        st.warning("⚠️ 해당 연도 개봉 영화 없음.")
+    # 기준별 idxmax 구하기
+    if sort_key == '당일 관객수':
+        idx = df_filtered.groupby('영화명')['당일 관객수'].idxmax()
+        key_col = '날짜'
+        key_name = '최대 당일 관객수 날짜'
+
+    elif sort_key == '주간 관객수':
+        idx = df_filtered.groupby('영화명')['주간 관객수'].idxmax()
+        key_col = '주'
+        key_name = '최대 주간 관객수 주'
+
+    elif sort_key == '월간 관객수':
+        idx = df_filtered.groupby('영화명')['월간 관객수'].idxmax()
+        key_col = '월'
+        key_name = '최대 월간 관객수 월'
+
     else:
-        df_grouped = df_filtered.groupby('영화명').agg({
-            '누적 관객수': 'max',
-            '지속 주간': 'max',
-            '주간 관객수': 'max',
-            '월간 관객수': 'max',
-            '당일 관객수': 'max',
-            '개봉일': 'first'
-        }).reset_index()
+        idx = None
+        key_col = None
+        key_name = None
 
-        data = df_grouped.to_dict('records')
-        sorted_data = merge_sort_double(data, sort_key)
-        top15_df = pd.DataFrame(sorted_data[:15])
+# 기본 집계
+    df_grouped = df_filtered.groupby('영화명').agg({
+    '누적 관객수': 'max',
+    '지속 주간': 'max',
+    '주간 관객수': 'max',
+    '월간 관객수': 'max',
+    '당일 관객수': 'max',
+    '개봉일': 'first'
+    }).reset_index()
 
-        st.subheader(f"Top 15 영화 (기준: 누적 관객수 → {sort_key})")
-        st.dataframe(top15_df)
+# 선택한 기준이 있으면 해당 값 추가
+    if idx is not None:
+        df_key = df_filtered.loc[idx, ['영화명', key_col]].rename(columns={key_col: key_name})
+        df_grouped = df_grouped.merge(df_key, on='영화명', how='left')
+
+
+    data = df_grouped.to_dict('records')
+    sorted_data = merge_sort_double(data, sort_key)
+    top30_df = pd.DataFrame(sorted_data[:30])
+
+    st.subheader(f"Top 30 영화 (기준: {sort_key} → 누적 관객수)")
+    st.dataframe(top30_df)
